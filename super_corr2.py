@@ -80,16 +80,16 @@ def generate_correlation_map(x,y,h5pyFile=None,datasetName=None,memory_check=Tru
     if memory_check==False:
         return r
     else:
-        d = h5pyFile.create_dataset(
+        h5pyFile.create_dataset(
                 datasetName,
                 shape=(x.shape[1], y.shape[1]),
                 dtype="f",
 #                compression="gzip",
                 compression="lzf",
                 chunks=(100,y.shape[1]),
-#                data=r
+                data=r
                 )
-        d[:] = r
+
         del r
         return h5pyFile
 
@@ -99,33 +99,34 @@ if __name__ == "__main__":
     import h5py
     import nilearn
     from nilearn.input_data import NiftiMasker as masker
-#    from mpi4py import MPI
     nilearn.EXPAND_PATH_WILDCARDS = False
      
-    submask_dir = os.path.join(".","cing_chunk6")
+    submask_dir = os.path.join(".","cing_chunk12")
     submasks = sorted([f for f in os.listdir(submask_dir)])
     
     test_file = "test_scan.nii.gz"
+    output_file = "test_subject_super_corr2.hdf5"
     
     brain_masker = masker(verbose=0)
     
-#    f = h5py.File("test_subject_super_corr2.hdf5", "w", driver="mpio", comm=MPI.COMM_WORLD)
-#    f = h5py.File("test_subject_super_corr2.hdf5", "w")
-#    print("Creating hdf5 file: %s" % datetime.datetime.now())
+    f = h5py.File(output_file, "w")
+    print("Creating hdf5 file: %s" % datetime.datetime.now())
+    f.close()
     
     brain_ts = brain_masker.fit_transform(test_file)
     print("Masking brain: %s" % datetime.datetime.now())
-#    
-#    for submask in submasks:
-#        key = "cingulate_chunk_%s" % submask.split("_")[0]
-#        cing_submask = masker(os.path.join(submask_dir,submask))
-#        
-#        submask_ts = cing_submask.fit_transform(test_file)
-#        print("Masking cingulate - %s: %s" % (key,datetime.datetime.now()))
-#        
-#        generate_correlation_map(submask_ts,brain_ts,f,key)
-#        print("Corr calculation + saving: %s" % datetime.datetime.now())
-#        
-#        print("\n")
-#        
-#    f.close()
+    
+    for submask in submasks:
+        f = h5py.File(output_file,"r+")
+        
+        key = "cingulate_chunk_%s" % submask.split("_")[0]
+        cing_submask = masker(os.path.join(submask_dir,submask))
+        
+        submask_ts = cing_submask.fit_transform(test_file)
+        print("Masking cingulate - %s: %s" % (key,datetime.datetime.now()))
+        
+        generate_correlation_map(submask_ts,brain_ts,f,key)
+        
+        del submask_ts
+        print("Corr calculation + saving: %s" % datetime.datetime.now())
+        f.close()
