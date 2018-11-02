@@ -61,72 +61,88 @@ def generate_correlation_map(x,y,h5pyFile=None,datasetName=None,memory_check=Tru
     if s != y.shape[0]:
         raise ValueError ("x and y must have the same number of observations")
     
+    std_x = x.std(0, ddof=s - 1)
+    std_y = y.std(0, ddof=s - 1)
+    
     if h5pyFile==None and memory_check==True: 
-        if n<10000 and m<100000 and s<1000:
-            memory_check=False
+        if n<10000 and m<10000 and s<1000:
+            cov = np.dot(center_matrix(x).T,center_matrix(y))
+            return cov/np.dot(std_x[:, np.newaxis], std_y[np.newaxis, :])
         else:
             raise OverflowError ("Input matrices are probably too large")
     
     if datasetName==None:
         datasetName = "corrdata_%s" % datetime.datetime.today()
-        
-    std_x = x.std(0, ddof=s - 1)
-    std_y = y.std(0, ddof=s - 1)
-    
+         
     cov = np.dot(center_matrix(x).T,center_matrix(y))
     r = cov/np.dot(std_x[:, np.newaxis], std_y[np.newaxis, :])
     del cov
-    
-    if memory_check==False:
-        return r
-    else:
-        h5pyFile.create_dataset(
-                datasetName,
-                shape=(x.shape[1], y.shape[1]),
-                dtype="f",
-#                compression="gzip",
-                compression="lzf",
-                chunks=(100,y.shape[1]),
-                data=r
-                )
 
-        del r
-        return h5pyFile
+    h5pyFile.create_dataset(
+            datasetName,
+            shape=(x.shape[1], y.shape[1]),
+            dtype="f",
+#                compression="gzip",
+            compression="lzf",
+#                chunks=(100,y.shape[1]),
+            data=r
+            )
+    del r
+    return h5pyFile
+
+def chunk_getter(maxcol, chunk_size=1000):
+    """
+    Calculate number of chunks to divide x_cols into
+    Default chunk_size is 1000 variables per chunk
+    """
+    chunks = 1
+    while(maxcol/chunks) > chunk_size:
+        chunks += 1
+    return chunks
+
+def colrange_getter(maxcol, chunk, chunk_size=1000):
+    """
+    Get the range of x_cols to grab
+    """
+    colrange = range(chunk*chunk_size, (chunk + 1)*chunk_size)
+    if max(colrange) >= maxcol:
+        colrange = range(chunk*chunk_size, maxcol)
+    return colrange
 
 if __name__ == "__main__":
 # Testing performance
-    import os
     import h5py
     import nilearn
     from nilearn.input_data import NiftiMasker as masker
     nilearn.EXPAND_PATH_WILDCARDS = False
-     
-    submask_dir = os.path.join(".","cing_chunk12")
-    submasks = sorted([f for f in os.listdir(submask_dir)])
     
     test_file = "test_scan.nii.gz"
     output_file = "test_subject_super_corr2.hdf5"
-    
-    brain_masker = masker(verbose=0)
     
     f = h5py.File(output_file, "w")
     print("Creating hdf5 file: %s" % datetime.datetime.now())
     f.close()
     
-    brain_ts = brain_masker.fit_transform(test_file)
-    print("Masking brain: %s" % datetime.datetime.now())
+    brain_masker = masker(verbose=0)
+    cing_masker = masker("aal2_cingulate.nii.gz",verbose=0)
     
-    for submask in submasks:
-        f = h5py.File(output_file,"r+")
+    brain_ts = brain_masker.fit_transform(test_file)
+    cing_ts = cing_masker.fit_transform(test_file)
+    print("Masking data: %s" % datetime.datetime.now())
+    
+    chunk_size = 3000
+    chunks = chunk_getter(cing_ts.shape[1], chunk_size)
+    
+    for chunk in range(chunks):
+        key = "cingulate_chunk_%03d" % chunk
+        colrange = colrange_getter(cing_ts.shape[1], chunk, chunk_size)
         
-        key = "cingulate_chunk_%s" % submask.split("_")[0]
-        cing_submask = masker(os.path.join(submask_dir,submask))
-        
-        submask_ts = cing_submask.fit_transform(test_file)
-        print("Masking cingulate - %s: %s" % (key,datetime.datetime.now()))
-        
-        generate_correlation_map(submask_ts,brain_ts,f,key)
-        
-        del submask_ts
-        print("Corr calculation + saving: %s" % datetime.datetime.now())
+        f = h5py.File(output_file, "r+")
+        generate_correlation_map(cing_ts[:,colrange], brain_ts, f, key)
         f.close()
+        print("Calc/save for chunk %d: %s" % (chunk, datetime.datetime.now()))
+    
+#    from multiprocessing import Pool  
+#    chunks = chunk_getter(cing_ts.shape[1])
+#    p = Pool()
+#    p.map(generate_correlation_map(cing_ts[:,colrange_getter(cing_ts.shape[1],chunk)],brain_ts,f) for chunk in range(chunks))
