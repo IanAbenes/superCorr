@@ -1,1 +1,3 @@
-# super_corr
+# superCorr
+
+Repo for superCorr version control. 
